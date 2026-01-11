@@ -93,12 +93,13 @@ export function useParticleSystem(
         }
       });
 
-      // Apply velocity damping
-      particle.vx *= 0.98;
-      particle.vy *= 0.98;
+      // Apply velocity damping (gentler for floaty feel)
+      particle.vx *= 0.995;
+      particle.vy *= 0.995;
 
-      // Apply gravity (subtle)
-      particle.vy += 0.02;
+      // Floating motion - gentle random drift instead of gravity
+      particle.vx += (Math.random() - 0.5) * 0.05;
+      particle.vy += (Math.random() - 0.5) * 0.05;
 
       // Update position
       particle.x += particle.vx;
