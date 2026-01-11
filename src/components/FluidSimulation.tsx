@@ -1,13 +1,12 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useParticleSystem } from '@/hooks/useParticleSystem';
-import { useHandTracking, HandData } from '@/hooks/useHandTracking';
+import { useHandTracking } from '@/hooks/useHandTracking';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Hand, Camera, MousePointer, RotateCcw, Settings, X } from 'lucide-react';
 
 export function FluidSimulation() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [showControls, setShowControls] = useState(false);
@@ -24,25 +23,24 @@ export function FluidSimulation() {
     interactionStrength
   );
 
-  const handleHandUpdate = useCallback((hand: HandData | null) => {
-    if (hand && canvasRef.current && videoRef.current) {
-      const scaleX = canvasRef.current.width / videoRef.current.videoWidth;
-      const scaleY = canvasRef.current.height / videoRef.current.videoHeight;
+  const handleHandUpdate = useCallback((hand: { x: number; y: number; isOpen: boolean } | null) => {
+    if (hand && canvasRef.current) {
+      // Scale from video coordinates to canvas coordinates
+      const canvas = canvasRef.current;
+      const scaleX = canvas.width / 320;
+      const scaleY = canvas.height / 240;
       
       setHandPosition({
         x: hand.x * scaleX,
         y: hand.y * scaleY,
         isOpen: hand.isOpen,
       });
-    } else if (useHandControl) {
+    } else {
       setHandPosition(null);
     }
-  }, [setHandPosition, useHandControl]);
+  }, [setHandPosition]);
 
-  const { initialize: initHandTracking, stop: stopHandTracking, isLoading: handLoading, error: handError, isActive: handActive } = useHandTracking(
-    videoRef,
-    handleHandUpdate
-  );
+  const { initialize: initHandTracking, stop: stopHandTracking, isLoading: handLoading, error: handError, isActive: handActive } = useHandTracking(handleHandUpdate);
 
   // Mouse/touch controls
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -52,7 +50,7 @@ export function FluidSimulation() {
         setHandPosition({
           x: e.clientX - rect.left,
           y: e.clientY - rect.top,
-          isOpen: !isMouseDown, // Click to attract, release to repel
+          isOpen: !isMouseDown,
         });
       }
     }
@@ -71,7 +69,7 @@ export function FluidSimulation() {
         setHandPosition({
           x: e.touches[0].clientX - rect.left,
           y: e.touches[0].clientY - rect.top,
-          isOpen: false, // Touch always attracts
+          isOpen: false,
         });
       }
     }
@@ -113,14 +111,6 @@ export function FluidSimulation() {
 
   return (
     <div ref={containerRef} className="relative w-full h-screen overflow-hidden bg-background">
-      {/* Hidden video for camera feed */}
-      <video
-        ref={videoRef}
-        className="hidden"
-        playsInline
-        muted
-      />
-
       {/* Particle canvas */}
       <canvas
         ref={canvasRef}
@@ -143,7 +133,7 @@ export function FluidSimulation() {
                 Fluid Particles
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                {useHandControl ? 'Control with hand gestures' : 'Move mouse to interact • Click to attract'}
+                {useHandControl ? 'Control with motion' : 'Move mouse to interact • Click to attract'}
               </p>
             </div>
             
@@ -160,7 +150,7 @@ export function FluidSimulation() {
                       <div className="w-2 h-2 rounded-full bg-muted-foreground" />
                     )}
                     <span className="text-sm text-muted-foreground">
-                      {handActive ? 'Hand Active' : handLoading ? 'Loading...' : 'Hand Mode'}
+                      {handActive ? 'Camera Active' : handLoading ? 'Loading...' : 'Camera Mode'}
                     </span>
                   </>
                 ) : (
@@ -228,7 +218,7 @@ export function FluidSimulation() {
                   {handLoading ? (
                     <>
                       <div className="w-3 h-3 border-2 border-foreground/30 border-t-foreground rounded-full animate-spin mr-2" />
-                      Loading Camera...
+                      Starting Camera...
                     </>
                   ) : useHandControl ? (
                     <>
@@ -238,7 +228,7 @@ export function FluidSimulation() {
                   ) : (
                     <>
                       <Camera className="w-4 h-4 mr-2" />
-                      Enable Hand Tracking
+                      Enable Camera Control
                     </>
                   )}
                 </Button>
@@ -272,10 +262,10 @@ export function FluidSimulation() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">
-                    <span className="text-accent font-medium">Open palm</span> → repels
+                    <span className="text-accent font-medium">Large motion</span> → repels
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    <span className="text-secondary font-medium">Closed fist</span> → attracts
+                    <span className="text-secondary font-medium">Small motion</span> → attracts
                   </p>
                 </div>
               </div>
