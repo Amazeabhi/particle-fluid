@@ -7,7 +7,7 @@ An interactive **hand-tracking particle fluid simulation** where users can contr
 ## 🚀 Launch Project
 
 <p align="center">
-  <a href="https://github.com/Amazeabhi/particle-fluid.git" target="_blank">
+  <a href="https://particle-fluid.lovable.app" target="_blank">
     <img src="https://img.shields.io/badge/🚀%20Launch%20Project-Click%20Here-brightgreen?style=for-the-badge" />
   </a>
 </p>
