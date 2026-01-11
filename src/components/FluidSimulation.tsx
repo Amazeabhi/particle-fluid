@@ -3,7 +3,7 @@ import { useParticleSystem } from '@/hooks/useParticleSystem';
 import { useHandTracking, HandData } from '@/hooks/useHandTracking';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { Hand, Play, Pause, RotateCcw, Settings, X } from 'lucide-react';
+import { Hand, Camera, MousePointer, RotateCcw, Settings, X } from 'lucide-react';
 
 export function FluidSimulation() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -11,10 +11,11 @@ export function FluidSimulation() {
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [showControls, setShowControls] = useState(false);
-  const [particleCount, setParticleCount] = useState(400);
+  const [particleCount] = useState(400);
   const [interactionRadius, setInteractionRadius] = useState(150);
   const [interactionStrength, setInteractionStrength] = useState(0.5);
-  const [isSimulating, setIsSimulating] = useState(false);
+  const [isMouseDown, setIsMouseDown] = useState(false);
+  const [useHandControl, setUseHandControl] = useState(false);
 
   const { start, stop, setHandPosition, reinitialize } = useParticleSystem(
     canvasRef,
@@ -25,7 +26,6 @@ export function FluidSimulation() {
 
   const handleHandUpdate = useCallback((hand: HandData | null) => {
     if (hand && canvasRef.current && videoRef.current) {
-      // Scale hand position from video coordinates to canvas coordinates
       const scaleX = canvasRef.current.width / videoRef.current.videoWidth;
       const scaleY = canvasRef.current.height / videoRef.current.videoHeight;
       
@@ -34,17 +34,50 @@ export function FluidSimulation() {
         y: hand.y * scaleY,
         isOpen: hand.isOpen,
       });
-    } else {
+    } else if (useHandControl) {
       setHandPosition(null);
     }
-  }, [setHandPosition]);
+  }, [setHandPosition, useHandControl]);
 
-  const { initialize: initHandTracking, stop: stopHandTracking, isLoading, error, isActive } = useHandTracking(
+  const { initialize: initHandTracking, stop: stopHandTracking, isLoading: handLoading, error: handError, isActive: handActive } = useHandTracking(
     videoRef,
     handleHandUpdate
   );
 
-  // Handle canvas resize
+  // Mouse/touch controls
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!useHandControl) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        setHandPosition({
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top,
+          isOpen: !isMouseDown, // Click to attract, release to repel
+        });
+      }
+    }
+  }, [useHandControl, isMouseDown, setHandPosition]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (!useHandControl) {
+      setHandPosition(null);
+    }
+  }, [useHandControl, setHandPosition]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!useHandControl && e.touches.length > 0) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        setHandPosition({
+          x: e.touches[0].clientX - rect.left,
+          y: e.touches[0].clientY - rect.top,
+          isOpen: false, // Touch always attracts
+        });
+      }
+    }
+  }, [useHandControl, setHandPosition]);
+
+  // Handle canvas resize and start simulation immediately
   useEffect(() => {
     const handleResize = () => {
       const canvas = canvasRef.current;
@@ -53,31 +86,29 @@ export function FluidSimulation() {
 
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
-
-      if (isSimulating) {
-        reinitialize();
-      }
+      reinitialize();
     };
 
     handleResize();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isSimulating, reinitialize]);
-
-  const handleStart = async () => {
-    await initHandTracking();
+    
+    // Start simulation immediately
     start();
-    setIsSimulating(true);
-  };
 
-  const handleStop = () => {
-    stop();
-    stopHandTracking();
-    setIsSimulating(false);
-  };
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      stop();
+    };
+  }, []);
 
-  const handleReset = () => {
-    reinitialize();
+  const toggleHandControl = async () => {
+    if (useHandControl) {
+      stopHandTracking();
+      setUseHandControl(false);
+    } else {
+      setUseHandControl(true);
+      await initHandTracking();
+    }
   };
 
   return (
@@ -93,7 +124,13 @@ export function FluidSimulation() {
       {/* Particle canvas */}
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
+        className="absolute inset-0 w-full h-full cursor-none"
+        onMouseMove={handleMouseMove}
+        onMouseDown={() => setIsMouseDown(true)}
+        onMouseUp={() => setIsMouseDown(false)}
+        onMouseLeave={handleMouseLeave}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={() => setHandPosition(null)}
       />
 
       {/* Overlay UI */}
@@ -106,17 +143,33 @@ export function FluidSimulation() {
                 Fluid Particles
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Control particles with your hand gestures
+                {useHandControl ? 'Control with hand gestures' : 'Move mouse to interact • Click to attract'}
               </p>
             </div>
             
             <div className="flex items-center gap-3">
-              {isActive && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/20 border border-accent/30">
-                  <div className="w-2 h-2 rounded-full bg-accent animate-pulse-glow" />
-                  <span className="text-sm text-accent">Hand Tracking Active</span>
-                </div>
-              )}
+              {/* Control mode indicator */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 border border-border/50">
+                {useHandControl ? (
+                  <>
+                    {handActive ? (
+                      <div className="w-2 h-2 rounded-full bg-accent animate-pulse-glow" />
+                    ) : handLoading ? (
+                      <div className="w-3 h-3 border-2 border-muted-foreground/30 border-t-accent rounded-full animate-spin" />
+                    ) : (
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground" />
+                    )}
+                    <span className="text-sm text-muted-foreground">
+                      {handActive ? 'Hand Active' : handLoading ? 'Loading...' : 'Hand Mode'}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <MousePointer className="w-3 h-3 text-primary" />
+                    <span className="text-sm text-muted-foreground">Mouse Mode</span>
+                  </>
+                )}
+              </div>
               
               <Button
                 variant="outline"
@@ -133,23 +186,9 @@ export function FluidSimulation() {
         {/* Controls Panel */}
         {showControls && (
           <div className="absolute top-24 right-6 w-72 p-5 rounded-xl bg-card/90 backdrop-blur-xl border border-border/50 shadow-glow pointer-events-auto">
-            <h3 className="text-sm font-semibold text-foreground mb-4">Simulation Settings</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-4">Settings</h3>
             
             <div className="space-y-5">
-              <div>
-                <label className="text-xs text-muted-foreground mb-2 block">
-                  Particle Count: {particleCount}
-                </label>
-                <Slider
-                  value={[particleCount]}
-                  onValueChange={(v) => setParticleCount(v[0])}
-                  min={100}
-                  max={1000}
-                  step={50}
-                  className="w-full"
-                />
-              </div>
-
               <div>
                 <label className="text-xs text-muted-foreground mb-2 block">
                   Interaction Radius: {interactionRadius}px
@@ -177,100 +216,86 @@ export function FluidSimulation() {
                   className="w-full"
                 />
               </div>
-            </div>
 
-            <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border/50">
-              Changes apply on restart or reset
-            </p>
-          </div>
-        )}
-
-        {/* Center start prompt */}
-        {!isSimulating && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center space-y-6 pointer-events-auto">
-              <div className="w-24 h-24 mx-auto rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center animate-pulse-glow">
-                <Hand className="w-12 h-12 text-primary" />
-              </div>
-              
-              <div>
-                <h2 className="text-xl font-semibold text-foreground mb-2">
-                  Hand Gesture Control
-                </h2>
-                <p className="text-muted-foreground text-sm max-w-xs">
-                  Open your hand to repel particles, close it to attract them
-                </p>
-              </div>
-
-              <Button
-                size="lg"
-                onClick={handleStart}
-                disabled={isLoading}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-glow"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2" />
-                    Initializing...
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 mr-2" />
-                    Start Simulation
-                  </>
+              <div className="pt-2 border-t border-border/50">
+                <Button
+                  variant={useHandControl ? "secondary" : "outline"}
+                  size="sm"
+                  className="w-full"
+                  onClick={toggleHandControl}
+                  disabled={handLoading}
+                >
+                  {handLoading ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-foreground/30 border-t-foreground rounded-full animate-spin mr-2" />
+                      Loading Camera...
+                    </>
+                  ) : useHandControl ? (
+                    <>
+                      <MousePointer className="w-4 h-4 mr-2" />
+                      Switch to Mouse
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-4 h-4 mr-2" />
+                      Enable Hand Tracking
+                    </>
+                  )}
+                </Button>
+                {handError && (
+                  <p className="text-xs text-destructive mt-2">{handError}</p>
                 )}
-              </Button>
-
-              {error && (
-                <p className="text-destructive text-sm">{error}</p>
-              )}
+              </div>
             </div>
           </div>
         )}
 
         {/* Bottom controls */}
-        {isSimulating && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 pointer-events-auto">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleReset}
-              className="border-border/50 hover:bg-muted"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </Button>
-            
-            <Button
-              variant="destructive"
-              onClick={handleStop}
-              className="px-6"
-            >
-              <Pause className="w-4 h-4 mr-2" />
-              Stop
-            </Button>
-          </div>
-        )}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 pointer-events-auto">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={reinitialize}
+            className="border-border/50 hover:bg-muted"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </Button>
+        </div>
 
         {/* Instructions */}
-        {isSimulating && (
-          <div className="absolute bottom-6 left-6 max-w-xs pointer-events-auto">
-            <div className="p-4 rounded-lg bg-card/80 backdrop-blur-md border border-border/50">
+        <div className="absolute bottom-6 left-6 max-w-xs pointer-events-auto">
+          <div className="p-4 rounded-lg bg-card/80 backdrop-blur-md border border-border/50">
+            {useHandControl ? (
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
                   <Hand className="w-4 h-4 text-accent" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">
-                    <span className="text-accent font-medium">Open palm</span> → repels particles
+                    <span className="text-accent font-medium">Open palm</span> → repels
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    <span className="text-secondary font-medium">Closed fist</span> → attracts particles
+                    <span className="text-secondary font-medium">Closed fist</span> → attracts
                   </p>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
+                  <MousePointer className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    <span className="text-primary font-medium">Move</span> → repels particles
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <span className="text-secondary font-medium">Click & hold</span> → attracts
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
